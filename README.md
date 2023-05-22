@@ -20,23 +20,29 @@
 
 ## 아키텍처
 
-
-<div align=center> <img width="500" src="https://github.com/jhl8109/Restful-Service/assets/78259314/50f44a7c-aa3d-4adc-9777-de186d8f4b80"/> </div>
+이벤트 수신 및 처리하는 메커니즘을 나타낸 시스템 아키텍처는 아래 그림과 같다.
+블록체인 런타임에서 발생하는 이벤트는 Contract Event와 Block Event로 분류하였다. 
+1. EventReceiver에 의해 이벤트를 수신한다.
+2. 수신한 데이터는 DataClassifier에 의해 데이터를 분류한다.
+3. OffchainProcessor는 분류된 데이터를 오프체인에 저장한다.
+<div align=center> <img width="400" src="https://github.com/jhl8109/Restful-Service/assets/78259314/50f44a7c-aa3d-4adc-9777-de186d8f4b80"/> </div>
  
 
-
-
-
-
 ## 사례연구
+
  <div align=center> 
-  <img width="500" src="https://github.com/jhl8109/Restful-Service/assets/78259314/9d35fc6c-450f-40bd-8385-f2aad282a9d8"/>
-  <img width="500" src="https://github.com/jhl8109/Restful-Service/assets/78259314/a0af3540-c8f3-4d87-a155-dbd46a737bf1"/>
+ 
+ |이벤트 데이터 수신|오프체인 트랜잭션|
+ |---|---|
+ |<img width="500" src="https://github.com/jhl8109/Restful-Service/assets/78259314/9d35fc6c-450f-40bd-8385-f2aad282a9d8"/>|<img width="500" src="https://github.com/jhl8109/Restful-Service/assets/78259314/a0af3540-c8f3-4d87-a155-dbd46a737bf1"/>|
+ 
 </div>
 
 ## 성능평가
+
 <div align=center>
-  
-![스크린샷 2023-05-23 오전 12 06 04](https://github.com/jhl8109/Restful-Service/assets/78259314/f7d711c3-0c62-421e-9b6b-184582ff45d0)
-![스크린샷 2023-05-23 오전 12 05 51](https://github.com/jhl8109/Restful-Service/assets/78259314/88e90651-4b3a-4398-b317-5650ed61e6c8)
+ 
+ |실행 환경|평가 결과|
+ |---|---|
+ | ![스크린샷 2023-05-23 오전 12 06 04](https://github.com/jhl8109/Restful-Service/assets/78259314/f7d711c3-0c62-421e-9b6b-184582ff45d0) | ![스크린샷 2023-05-23 오전 12 05 51](https://github.com/jhl8109/Restful-Service/assets/78259314/88e90651-4b3a-4398-b317-5650ed61e6c8) |
 </div>
