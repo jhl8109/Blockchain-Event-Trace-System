@@ -4,64 +4,61 @@ import (
 	"Blockchain-Event-Trace-System/db"
 	"bytes"
 	"context"
+	"database/sql"
 	"encoding/json"
 	"errors"
 	"fmt"
 	"github.com/gin-gonic/gin"
 	"github.com/hyperledger/fabric-gateway/pkg/client"
 	"log"
-	"net/http"
 	"os"
 	"strconv"
 	"time"
 )
 
 const (
-	channelName   = "mychannel"
-	chaincodeName = "used_market3"
+	channelName   = "used-car"
+	chaincodeName = "used-car-transfer"
 )
 
-var now = time.Now()
-var assetID = fmt.Sprintf("asset%d", now.Unix()*1e3+int64(now.Nanosecond())/1e6)
 var contract = &client.Contract{}
 var network = &client.Network{}
-var startTime = time.Now()
-var commitTime = time.Now()
-var saveTime = time.Now()
 
-type TransactionRequest struct {
-	ID              string `json:"ID"`
-	ProductName     string `json:"ProductName"`
-	ProductPrice    int    `json:"ProductPrice"`
-	TransactionDate string `json:"TransactionDate"`
-	Seller          string `json:"Seller"`
-	Buyer           string `json:"Buyer"`
-	Location        string `json:"Location"`
-	State           string `json:"State"`
+type Transaction struct {
+	ID                 int64              `json:"id"`
+	UploadDate         string             `json:"uploadDate"`
+	Assignor           Participant        `json:"assignor"`
+	Assignee           Participant        `json:"assignee"`
+	TransactionDetails TransactionDetails `json:"transactionDetails"`
 }
 
-type Asset struct {
-	ID              string `json:"ID"`
-	ProductName     string `json:"ProductName"`
-	ProductPrice    int    `json:"ProductPrice"`
-	TransactionDate string `json:"TransactionDate"`
-	Seller          string `json:"Seller"`
-	Buyer           string `json:"Buyer"`
-	Location        string `json:"Location"`
-	State           string `json:"State"`
-}
 type Participant struct {
-	Name        string `json:"Name"`
-	Certificate string `json:"Certificate"`
+	Name                       string `json:"name"`
+	ResidentRegistrationNumber string `json:"residentRegistrationNumber"`
+	PhoneNumber                string `json:"phoneNumber"`
+	Address                    string `json:"address"`
 }
-type CCEvent struct {
-	Asset       Asset       `json:"Asset"`
-	Participant Participant `json:"Participant"`
+
+type TransactionDetails struct {
+	TransactionState             string `json:"transactionState"`
+	VehicleRegistrationNumber    string `json:"vehicleRegistrationNumber"`
+	NewVehicleRegistrationNumber string `json:"newVehicleRegistrationNumber"`
+	VehicleModelName             string `json:"vehicleModelName"`
+	VehicleIdentificationNumber  string `json:"vehicleIdentificationNumber"`
+	TransactionDate              string `json:"transactionDate"`
+	TransactionAmount            string `json:"transactionAmount"`
+	BalancePaymentDate           string `json:"balancePaymentDate"`
+	VehicleDeliveryDate          string `json:"vehicleDeliveryDate"`
+	VehicleDeliveryAddress       string `json:"vehicleDeliveryAddress"`
+	Mileage                      string `json:"mileage"`
+}
+
+type CCEvent2 struct {
+	Transaction Transaction `json:"transaction"`
 }
 
 func Connect() {
 	clientConnection := newGrpcConnection()
-	//defer clientConnection.Close()
 
 	id := newIdentity()
 	sign := newSign()
@@ -78,122 +75,23 @@ func Connect() {
 	if err != nil {
 		panic(err)
 	}
-	//defer gateway.Close()
 
 	network = gateway.GetNetwork(channelName)
 	contract = network.GetContract(chaincodeName)
 	fmt.Printf("*** first:%s\n", contract)
-	// Context used for event listening
-	ctx, _ := context.WithCancel(context.Background())
-	//defer cancel()
 
-	// Listen for events emitted by subsequent transactions
-	startChaincodeEventListening(ctx, network)
+	//ctx, _ := context.WithCancel(context.Background())
 
-	//replayChaincodeEvents(ctx, network, 1)
-}
-
-func queryPerformanceTest() {
-	startID := 1
-	endID := 100
-	db.QueryTxDataByID("asset1")
-	file, err := os.OpenFile("sql_query_performance.txt", os.O_CREATE|os.O_WRONLY|os.O_APPEND, 0644)
-	if err != nil {
-		log.Fatalf("failed to open file: %v", err)
-	}
-	defer file.Close()
-
-	for id := startID; id <= endID; id++ {
-		assetID := fmt.Sprintf("asset%d", id)
-		dbStart := time.Now()
-
-		txData, err := db.QueryTxDataByID(assetID)
-		if err != nil {
-			log.Printf("Error fetching data for ID %d: %v\n", assetID, err)
-			continue
-		}
-
-		dbEnd := time.Now()
-		elapsedTime := dbEnd.Sub(dbStart)
-		elapsedTimeMs := float64(elapsedTime) / float64(time.Millisecond)
-		fmt.Println(txData)
-		fmt.Printf("ID: %d, Time: %.3f ms\n", id, elapsedTimeMs)
-		_, err = fmt.Fprintf(file, "%.3f\n", elapsedTimeMs)
-		if err != nil {
-			log.Fatalf("failed to write to file: %v", err)
-		}
-	}
-}
-
-func CreateAsset(c *gin.Context) {
-	startTime = time.Now()
-	var transactionRequest TransactionRequest
-	if err := c.BindJSON(&transactionRequest); err != nil {
-		c.IndentedJSON(http.StatusBadRequest, gin.H{"err": err})
-	}
-	createAsset(contract, transactionRequest)
-	commitTime = time.Now()
-}
-func UpdateAsset(c *gin.Context) {
-
-	var transactionRequest TransactionRequest
-	if err := c.BindJSON(&transactionRequest); err != nil {
-		c.IndentedJSON(http.StatusBadRequest, gin.H{"err": err})
-	}
-	updateAsset(contract, transactionRequest)
-
-}
-func TransferAsset(c *gin.Context) {
-	startTime = time.Now()
-	var transactionRequest TransactionRequest
-	if err := c.BindJSON(&transactionRequest); err != nil {
-		c.IndentedJSON(http.StatusBadRequest, gin.H{"err": err})
-	}
-	transferAsset(contract, transactionRequest)
-	commitTime = time.Now()
-}
-func DeleteAsset(c *gin.Context) {
-	var transactionRequest TransactionRequest
-	if err := c.BindJSON(&transactionRequest); err != nil {
-		c.IndentedJSON(http.StatusBadRequest, gin.H{"err": err})
-	}
-	deleteAsset(contract, transactionRequest)
-}
-func GetAsset(c *gin.Context) {
-	readStart := time.Now()
-	var transactionRequest TransactionRequest
-	if err := c.BindJSON(&transactionRequest); err != nil {
-		c.IndentedJSON(http.StatusBadRequest, gin.H{"err": err})
-	}
-	readAsset(contract, transactionRequest)
-	readEnd := time.Now()
-	readTimeMs := readEnd.Sub(readStart).Seconds() * 1000
-	fmt.Printf("%.3f\n", readTimeMs)
-	file, err := os.OpenFile("ledger_query_performance.txt", os.O_CREATE|os.O_WRONLY|os.O_APPEND, 0777)
-	if err != nil {
-		panic(fmt.Errorf("failed to open file: %w", err))
-	}
-	defer file.Close()
-	_, err = fmt.Fprintf(file, "%.3f\n", readTimeMs)
-	if err != nil {
-		panic(fmt.Errorf("failed to write to file: %w", err))
-	}
-}
-func GetAllAssets(c *gin.Context) {
-	var transactionRequest TransactionRequest
-	if err := c.BindJSON(&transactionRequest); err != nil {
-		c.IndentedJSON(http.StatusBadRequest, gin.H{"err": err})
-	}
-	getAllAssets(contract, transactionRequest)
+	//startChaincodeEventListening(ctx, network)
 }
 
 func startChaincodeEventListening(ctx context.Context, network *client.Network) {
 
-	blockEvents, blockErr := network.BlockEvents(ctx, client.WithStartBlock(1))
-	if blockErr != nil {
-		panic(fmt.Errorf("failed to start chaincode event listening: %w", blockErr))
-	}
-	fmt.Println("\n*** Start Block event listening")
+	//blockEvents, blockErr := network.BlockEvents(ctx, client.WithStartBlock(1))
+	//if blockErr != nil {
+	//	panic(fmt.Errorf("failed to start chaincode event listening: %w", blockErr))
+	//}
+	//fmt.Println("\n*** Start Block event listening")
 
 	ccEvents, ccErr := network.ChaincodeEvents(ctx, chaincodeName)
 	if ccErr != nil {
@@ -201,55 +99,142 @@ func startChaincodeEventListening(ctx context.Context, network *client.Network) 
 	}
 	fmt.Println("\n*** Start chaincode event listening")
 
+	//go func() {
+	//	for event := range blockEvents {
+	//		hashBytes := event.GetHeader().GetDataHash()
+	//		hashString := fmt.Sprintf("%x", hashBytes)
+	//		blockNumber := event.GetHeader().GetNumber()
+	//		fmt.Printf("\n<-- Block event received: \n   Received block number : %d \n   Received block hash - %s\n", blockNumber, hashString)
+	//	}
+	//}()
 	go func() {
-		for event := range blockEvents {
-			hashBytes := event.GetHeader().GetDataHash()
-			hashString := fmt.Sprintf("%x", hashBytes)
-			blockNumber := event.GetHeader().GetNumber()
-			fmt.Printf("\n<-- Block event received: \n   Received block number : %d \n   Received block hash - %s\n", blockNumber, hashString)
+		outputFile := "process.txt"
+		file, err := os.OpenFile(outputFile, os.O_APPEND|os.O_CREATE|os.O_WRONLY, 0644)
+		if err != nil {
+			log.Fatal(err)
 		}
-	}()
-	go func() {
+
 		for event := range ccEvents {
-			asset := formatJSON(event.Payload)
-			var ccEvent CCEvent
-			err := json.Unmarshal(event.Payload, &ccEvent)
+			startTime := time.Now().UnixNano()
+			startTimeString := fmt.Sprintf("%d", startTime)
+
+			eventStr := formatJSON(event.Payload)
+			var eventData Transaction
+			err := json.Unmarshal(event.Payload, &eventData)
 			if err != nil {
 				log.Println(err.Error())
 			}
 			switch event.EventName {
-			case "CreateAsset":
-				db.InsertTemporalData(ccEvent.Asset.ID, ccEvent.Asset.TransactionDate)
-				db.InsertParticipantData(ccEvent.Asset.ID, ccEvent.Participant.Name, ccEvent.Participant.Certificate)
-				db.InsertTransactionData(ccEvent.Asset.ID, ccEvent.Asset.ProductName, ccEvent.Asset.ProductPrice, ccEvent.Asset.Seller, ccEvent.Asset.Buyer, ccEvent.Asset.State)
-				db.InsertSpatialData(ccEvent.Asset.ID, ccEvent.Asset.Location)
-			case "UpdateAsset":
-				db.UpdateTransactionData1(ccEvent.Asset.ID, ccEvent.Asset.ProductName, ccEvent.Asset.ProductPrice, ccEvent.Asset.Seller, ccEvent.Asset.Buyer, ccEvent.Asset.State)
-			case "DeleteAsset":
-			case "TransferAsset":
-				db.UpdateTemporalData(ccEvent.Asset.ID, ccEvent.Asset.TransactionDate)
-				db.UpdateSpatialData(ccEvent.Asset.ID, ccEvent.Asset.Location)
-				db.UpdateParticipantData(ccEvent.Asset.ID, ccEvent.Participant.Name, ccEvent.Participant.Certificate)
-				db.UpdateTransactionData2(ccEvent.Asset.ID, ccEvent.Asset.Buyer, ccEvent.Asset.State)
+			case "SellVehicle":
+				db.InsertTemporalData(eventData.toTemporalData())
+				db.InsertSpatialData(eventData.toSpatialData())
+				db.InsertParticipantData(eventData.toParticipantData())
+				db.InsertTransactionData(eventData.toTransactionData())
+				break
+			case "BuyVehicle":
+				db.UpdateTemporalData(eventData.toTemporalData())
+				db.UpdateSpatialData(eventData.toSpatialData())
+				db.UpdateParticipantData(eventData.toParticipantData())
+				db.UpdateTransactionData(eventData.toTransactionData())
+				break
+			case "CompromiseTransaction":
+				db.UpdateTemporalData(eventData.toTemporalData())
+				db.UpdateSpatialData(eventData.toSpatialData())
+				db.UpdateParticipantData(eventData.toParticipantData())
+				db.UpdateTransactionData(eventData.toTransactionData())
+				break
 			default:
 				fmt.Printf(event.EventName)
 			}
-			saveTime = time.Now()
-			commitTimeMs := commitTime.Sub(startTime).Seconds() * 1000
-			saveTimeMS := saveTime.Sub(startTime).Seconds() * 1000
-			fmt.Printf("%.3f %.3f\n", commitTimeMs, saveTimeMS)
-			file, err := os.OpenFile("txquery.txt", os.O_CREATE|os.O_WRONLY|os.O_APPEND, 0777)
-			if err != nil {
-				panic(fmt.Errorf("failed to open file: %w", err))
+			fmt.Printf("\n<-- Chaincode event received: %s - %s\n", event.EventName, eventStr)
+
+			endTime := time.Now().UnixNano()
+			endTimeString := fmt.Sprintf("%d", endTime)
+			if _, err := file.WriteString(startTimeString + " " + endTimeString + "\n"); err != nil {
+				log.Println(err)
 			}
-			defer file.Close()
-			_, err = fmt.Fprintf(file, "%.3f %.3f\n", commitTimeMs, saveTimeMS)
-			if err != nil {
-				panic(fmt.Errorf("failed to write to file: %w", err))
-			}
-			fmt.Printf("\n<-- Chaincode event received: %s - %s\n", event.EventName, asset)
 		}
+
 	}()
+}
+func timeParse(timeStr string) (time.Time, error) {
+	const timeLayout = "2006-01-02 15:04:05"
+	location, err := time.LoadLocation("Asia/Seoul")
+	if err != nil {
+		return time.Time{}, fmt.Errorf("Failed to load location: %s", err.Error())
+	}
+	if timeStr == "" {
+		return time.Time{}, fmt.Errorf("Empty string provided, cannot parse as time.Time")
+	}
+	parsedTime, err := time.ParseInLocation(timeLayout, timeStr, location)
+	if err != nil {
+		return time.Time{}, fmt.Errorf("Failed to parse string '%s' to time.Time: %s", timeStr, err.Error())
+	}
+	return parsedTime, nil
+}
+
+func (tx Transaction) toTemporalData() db.TemporalData {
+	uploadDate, _ := timeParse(tx.UploadDate)
+	transactionDate, _ := timeParse(tx.TransactionDetails.TransactionDate)
+	balancePaymentDate, _ := timeParse(tx.TransactionDetails.BalancePaymentDate)
+	vehicleDeliveryDate, _ := timeParse(tx.TransactionDetails.VehicleDeliveryDate)
+
+	temporalData := db.TemporalData{
+		ID:                  tx.ID,
+		UploadDate:          sql.NullTime{Time: uploadDate, Valid: uploadDate != time.Time{}},
+		TransactionDate:     sql.NullTime{Time: transactionDate, Valid: transactionDate != time.Time{}},
+		BalancePaymentDate:  sql.NullTime{Time: balancePaymentDate, Valid: balancePaymentDate != time.Time{}},
+		VehicleDeliveryDate: sql.NullTime{Time: vehicleDeliveryDate, Valid: vehicleDeliveryDate != time.Time{}},
+	}
+	return temporalData
+}
+
+func (tx Transaction) toSpatialData() db.SpatialData {
+	spatialData := db.SpatialData{
+		ID:                     tx.ID,
+		VehicleDeliveryAddress: sql.NullString{String: tx.TransactionDetails.VehicleDeliveryAddress, Valid: tx.TransactionDetails.VehicleDeliveryAddress != ""},
+		AssignorAddress:        sql.NullString{String: tx.Assignor.Address, Valid: tx.Assignor.Address != ""},
+		AssigneeAddress:        sql.NullString{String: tx.Assignee.Address, Valid: tx.Assignee.Address != ""},
+	}
+	return spatialData
+}
+
+func (tx Transaction) toParticipantData() db.ParticipantData {
+	participantData := db.ParticipantData{
+		ID:                                 tx.ID,
+		AssignorName:                       sql.NullString{String: tx.Assignor.Name, Valid: tx.Assignor.Name != ""},
+		AssignorResidentRegistrationNumber: sql.NullString{String: tx.Assignor.ResidentRegistrationNumber, Valid: tx.Assignor.ResidentRegistrationNumber != ""},
+		AssignorPhoneNumber:                sql.NullString{String: tx.Assignor.PhoneNumber, Valid: tx.Assignor.PhoneNumber != ""},
+		AssignorAddress:                    sql.NullString{String: tx.Assignor.Address, Valid: tx.Assignor.Address != ""},
+		AssigneeName:                       sql.NullString{String: tx.Assignee.Name, Valid: tx.Assignee.Name != ""},
+		AssigneeResidentRegistrationNumber: sql.NullString{String: tx.Assignee.ResidentRegistrationNumber, Valid: tx.Assignee.ResidentRegistrationNumber != ""},
+		AssigneePhoneNumber:                sql.NullString{String: tx.Assignee.PhoneNumber, Valid: tx.Assignee.PhoneNumber != ""},
+		AssigneeAddress:                    sql.NullString{String: tx.Assignee.Address, Valid: tx.Assignee.Address != ""},
+	}
+	return participantData
+}
+func (tx Transaction) toTransactionData() db.TransactionData {
+	transactionDate, _ := timeParse(tx.TransactionDetails.TransactionDate)
+	transactionAmount, _ := strconv.ParseFloat(tx.TransactionDetails.TransactionAmount, 64)
+	balancePaymentDate, _ := timeParse(tx.TransactionDetails.BalancePaymentDate)
+	vehicleDeliveryDate, _ := timeParse(tx.TransactionDetails.VehicleDeliveryDate)
+	mileage, _ := strconv.ParseInt(tx.TransactionDetails.Mileage, 10, 64)
+
+	transactionData := db.TransactionData{
+		ID:                           tx.ID,
+		TransactionState:             sql.NullString{String: tx.TransactionDetails.TransactionState, Valid: tx.TransactionDetails.TransactionState != ""},
+		VehicleRegistrationNumber:    sql.NullString{String: tx.TransactionDetails.VehicleRegistrationNumber, Valid: tx.TransactionDetails.VehicleRegistrationNumber != ""},
+		NewVehicleRegistrationNumber: sql.NullString{String: tx.TransactionDetails.NewVehicleRegistrationNumber, Valid: tx.TransactionDetails.NewVehicleRegistrationNumber != ""},
+		VehicleModelName:             sql.NullString{String: tx.TransactionDetails.VehicleModelName, Valid: tx.TransactionDetails.VehicleModelName != ""},
+		VehicleIdentificationNumber:  sql.NullString{String: tx.TransactionDetails.VehicleIdentificationNumber, Valid: tx.TransactionDetails.VehicleIdentificationNumber != ""},
+		TransactionDate:              sql.NullTime{Time: transactionDate, Valid: transactionDate != time.Time{}},
+		TransactionAmount:            sql.NullFloat64{Float64: transactionAmount, Valid: transactionAmount != 0},
+		BalancePaymentDate:           sql.NullTime{Time: balancePaymentDate, Valid: balancePaymentDate != time.Time{}},
+		VehicleDeliveryDate:          sql.NullTime{Time: vehicleDeliveryDate, Valid: vehicleDeliveryDate != time.Time{}},
+		VehicleDeliveryAddress:       sql.NullString{String: tx.TransactionDetails.VehicleDeliveryAddress, Valid: tx.TransactionDetails.VehicleDeliveryAddress != ""},
+		Mileage:                      sql.NullInt64{Int64: mileage, Valid: mileage != 0},
+	}
+	return transactionData
 }
 
 func formatJSON(data []byte) string {
@@ -258,86 +243,6 @@ func formatJSON(data []byte) string {
 		panic(fmt.Errorf("failed to parse JSON: %w", err))
 	}
 	return result.String()
-}
-func getAllAssets(contract *client.Contract, request TransactionRequest) {
-	fmt.Printf("\n--> Query Assets: GetAllAssets, getAllAssets\n")
-
-	_, err := contract.EvaluateTransaction("GetAllAssets")
-	if err != nil {
-		panic(fmt.Errorf("failed to evaluate transaction: %w", err))
-	}
-	//result := formatJSON(evaluateResult)
-
-	fmt.Println("\n*** Query get all assets successfully")
-	queryPerformanceTest()
-}
-
-func readAsset(contract *client.Contract, request TransactionRequest) {
-	fmt.Printf("\n--> Query Assets: ReadAsset, ReadAsset\n")
-	_, err := contract.EvaluateTransaction("ReadAsset", request.ID)
-	if err != nil {
-		panic(fmt.Errorf("failed to evaluate transaction: %w", err))
-	}
-	//result := formatJSON(evaluateResult)
-
-	fmt.Println("\n*** Query get all assets successfully")
-}
-
-func createAsset(contract *client.Contract, request TransactionRequest) uint64 {
-	fmt.Printf("\n--> Submit transaction: CreateAsset, %s starts selling %s with price %d\n", request.Seller, request.ID, request.ProductPrice)
-	price := strconv.Itoa(request.ProductPrice)
-	_, commit, err := contract.SubmitAsync("CreateAsset",
-		client.WithArguments(request.ID, request.ProductName, price, request.TransactionDate, request.Seller, request.Buyer, request.Location, "on_sale"))
-	if err != nil {
-		panic(fmt.Errorf("failed to submit transaction: %w", err))
-	}
-
-	status, err := commit.Status()
-	if err != nil {
-		panic(fmt.Errorf("failed to get transaction commit status: %w", err))
-	}
-
-	if !status.Successful {
-		panic(fmt.Errorf("failed to commit transaction with status code %v", status.Code))
-	}
-
-	fmt.Println("\n*** CreateAsset committed successfully")
-
-	return status.BlockNumber
-}
-
-func updateAsset(contract *client.Contract, request TransactionRequest) {
-	fmt.Printf("\n--> Submit transaction: UpdateAsset, %s updates %s with price %d$\n", request.Seller, request.ID, request.ProductPrice)
-
-	_, err := contract.SubmitTransaction("UpdateAsset",
-		request.ID, request.ProductName, string(request.ProductPrice), request.TransactionDate, request.Seller, request.Buyer, request.Location, request.State)
-	if err != nil {
-		panic(fmt.Errorf("failed to submit transaction: %w", err))
-	}
-
-	fmt.Println("\n*** UpdateAsset committed successfully")
-}
-
-func transferAsset(contract *client.Contract, request TransactionRequest) {
-	fmt.Printf("\n--> Submit transaction: TransferAsset, %s sells %s to %s with price %d$\n", request.Seller, request.ID, request.Buyer, request.ProductPrice)
-
-	_, err := contract.SubmitTransaction("TransferAsset", request.ID, request.Buyer)
-	if err != nil {
-		panic(fmt.Errorf("failed to submit transaction: %w", err))
-	}
-
-	fmt.Println("\n*** TransferAsset committed successfully")
-}
-
-func deleteAsset(contract *client.Contract, request TransactionRequest) {
-	fmt.Printf("\n--> Submit transaction: DeleteAsset, %s\n", assetID)
-
-	_, err := contract.SubmitTransaction("DeleteAsset", request.ID)
-	if err != nil {
-		panic(fmt.Errorf("failed to submit transaction: %w", err))
-	}
-
-	fmt.Println("\n*** DeleteAsset committed successfully")
 }
 
 func replayChaincodeEvents(ctx context.Context, network *client.Network, startBlock uint64) {
@@ -363,4 +268,8 @@ func replayChaincodeEvents(ctx context.Context, network *client.Network, startBl
 			}
 		}
 	}
+}
+
+func GetAsset(c *gin.Context) {
+	db.SelectData()
 }

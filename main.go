@@ -21,17 +21,12 @@ func setupRouter() *gin.Engine {
 			"message": "pong",
 		})
 	})
-	//router.GET("/connect", func(c *gin.Context) {
-	//	gateway.Connect()
-	//	c.JSON(200, gin.H{
-	//		"message": "connected",
-	//	})
-	//})
-	router.POST("/asset", gateway.CreateAsset)
-	router.PUT("/asset", gateway.UpdateAsset)
-	router.POST("/tx", gateway.TransferAsset)
-	router.DELETE("/asset", gateway.DeleteAsset)
-	router.GET("/asset", gateway.GetAllAssets)
-	router.POST("/tt", gateway.GetAsset)
+	router.GET("/vehicles", gateway.GetAsset)
+	//router.POST("/asset", gateway.CreateAsset)
+	//router.PUT("/asset", gateway.UpdateAsset)
+	//router.POST("/tx", gateway.TransferAsset)
+	//router.DELETE("/asset", gateway.DeleteAsset)
+	//router.GET("/asset", gateway.GetAllAssets)
+	//router.POST("/tt", gateway.GetAsset)
 	return router
 }
