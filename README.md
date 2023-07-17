@@ -12,8 +12,7 @@
 [4. 개발](#개발)<br>
 &emsp;[4-1. 코드](#코드)<br>
 &emsp;[4-2. 화면](#)<br>
-[5. 평가](#평가)<br>
-[6. 결과](#결과)<br><br>
+[5. 성능 평가](#성능-평가)<br>
 
 ## 주요 기능
 허가형 블록체인의 실행환경에서 발생하는 이벤트(Contract Event, Block Event)를 수신하여 시간,공간,참가자,트랜잭션 데이터로 분류하여 오프체인 데이터베이스에 저장한다.
@@ -36,10 +35,9 @@
 ### 코드
 #### 게이트웨이 연결
 ```golang
-func SetConnection() {
-	log.Println("===============Set Connection ===============")
+func Connect() {
 	clientConnection := newGrpcConnection()
-	//defer clientConnection.Close()
+
 	id := newIdentity()
 	sign := newSign()
 
@@ -55,131 +53,104 @@ func SetConnection() {
 	if err != nil {
 		panic(err)
 	}
-	//defer gateway.Close()
-	network := gateway.GetNetwork(channelName)
-	ContractPass = network.GetContract(chaincodeName)
+
+	network = gateway.GetNetwork(channelName)
+	contract = network.GetContract(chaincodeName)
+	fmt.Printf("*** first:%s\n", contract)
+
+	ctx, _ := context.WithCancel(context.Background())
+
+	startChaincodeEventListening(ctx, network)
 }
 ```
 ---
-#### 이벤트 수신
+#### 이벤트 핸들링
 ```golang
-func TransferAsset(contract *client.Contract, transactionRequest TransactionRequest) string {
-	log.Println(contract, "2", transactionRequest.AssetID, transactionRequest.NewOwner)
+func startChaincodeEventListening(ctx context.Context, network *client.Network) {
 
-	submitResult, commit, err := contract.SubmitAsync("TransferAsset", client.WithArguments(transactionRequest.AssetID, transactionRequest.NewOwner))
-	if err != nil {
-		panic(fmt.Errorf("failed to submit transaction asynchronously: %w", err))
+	blockEvents, blockErr := network.BlockEvents(ctx, client.WithStartBlock(1))
+	if blockErr != nil {
+		panic(fmt.Errorf("failed to start chaincode event listening: %w", blockErr))
 	}
-	fmt.Printf("Successfully submitted transaction to transfer ownership from %s to %s. \n", string(submitResult), transactionRequest.NewOwner)
+	fmt.Println("\n*** Start Block event listening")
 
-	if status, err := commit.Status(); err != nil {
-		panic(fmt.Errorf("failed to get commit status: %w", err))
-	} else if !status.Successful {
-		panic(fmt.Errorf("transaction %s failed to commit with status: %d", status.TransactionID, int32(status.Code)))
+	ccEvents, ccErr := network.ChaincodeEvents(ctx, chaincodeName)
+	if ccErr != nil {
+		panic(fmt.Errorf("failed to start block event listening: %w", ccErr))
 	}
-	return string(submitResult)
-}
-```
----
-#### 이벤트 처리
-```golang
-type elasticClient struct {
-	es        *elasticsearch.Client
-	IndexName string
-}
+	fmt.Println("\n*** Start chaincode event listening")
 
-type ESResponse struct {
-	Took int64
-	Hits struct {
-		Total struct {
-			Value int64
+	go func() {
+		for event := range blockEvents {
+			hashBytes := event.GetHeader().GetDataHash()
+			hashString := fmt.Sprintf("%x", hashBytes)
+			blockNumber := event.GetHeader().GetNumber()
+			fmt.Printf("\n<-- Block event received: \n   Received block number : %d \n   Received block hash - %s\n", blockNumber, hashString)
 		}
-		Hits []*ESHit
-	}
-}
-
-type ESHit struct {
-	Score   float64 `json:"_score"`
-	Index   string  `json:"_index"`
-	Type    string  `json:"_type"`
-	Version int64   `json:"_version,omitempty"`
-
-	Source Article `json:"_source"`
-}
-func init() {
-	cfg := esClientConfig()
-	es, err := elasticsearch.NewClient(cfg)
-	if err != nil {
-		log.Printf("Error creating the client: %s", err)
-	} else {
-		log.Println(elasticsearch.Version)
-		log.Println(es.Info())
-	}
-	esClient.es = es
-	esClient.IndexName = "smart_contract"
-}
-
-func esClientConfig() elasticsearch.Config {
-	cfg := elasticsearch.Config{
-		Addresses:              []string{"https://localhost:9200"},
-		APIKey:                 "ZkkwZ2dvWUJvNHBGMlQzZXVGZUU6eGJGaHpTY0JTWC1IU2ZvOTdHTk16QQ==",
-		CertificateFingerprint: "6a220394bb428259b1991b3dcce16f7a810499de023d5d0bdb97c32bd762ba14",
-	}
-	//password : Zh-rgUV*3rdM6NhQE+Bo
-	return cfg
-}
-```
----
-#### Elastic Search 검색
-```golang
-func AddDocumentToES(item *Article) (string, error) {
-	payload, err := json.Marshal(item)
-	if err != nil {
-		log.Println(err)
-		return "", err
-	}
-	ctx := context.Background()
-	req := esapi.IndexRequest{
-		Index:      esClient.IndexName,
-		DocumentID: string(item.ID),
-		Body:       bytes.NewReader(payload),
-		Refresh:    "true",
-	}
-	res, err := req.Do(ctx, esClient.es)
-	if err != nil {
-		log.Fatalf("Error getting rsponse: %s", err)
-	}
-	defer res.Body.Close()
-
-	if res.IsError() {
-		var e map[string]interface{}
-		if err := json.NewDecoder(res.Body).Decode(&e); err != nil {
-			log.Print("payload : ")
-			log.Println(e)
-			log.Println(err)
-			return "", err
+	}()
+	go func() {
+		outputFile := "process.txt"
+		file, err := os.OpenFile(outputFile, os.O_APPEND|os.O_CREATE|os.O_WRONLY, 0644)
+		if err != nil {
+			log.Fatal(err)
 		}
-		log.Print(e)
-		return "", fmt.Errorf("[%s] %s: %s", res.Status(),
-			e["error"].(map[string]interface{})["type"],
-			e["error"].(map[string]interface{})["reason"])
-	}
 
-	return "Contract successfully added to search index", nil
+		for event := range ccEvents {
+			startTime := time.Now().UnixNano()
+			startTimeString := fmt.Sprintf("%d", startTime)
+
+			eventStr := formatJSON(event.Payload)
+			var eventData Transaction
+			err := json.Unmarshal(event.Payload, &eventData)
+			if err != nil {
+				log.Println(err.Error())
+			}
+			switch event.EventName {
+			case "SellVehicle":
+				db.InsertTemporalData(eventData.toTemporalData())
+				db.InsertSpatialData(eventData.toSpatialData())
+				db.InsertParticipantData(eventData.toParticipantData())
+				db.InsertTransactionData(eventData.toTransactionData())
+				break
+			case "BuyVehicle":
+				db.UpdateTemporalData(eventData.toTemporalData())
+				db.UpdateSpatialData(eventData.toSpatialData())
+				db.UpdateParticipantData(eventData.toParticipantData())
+				db.UpdateTransactionData(eventData.toTransactionData())
+				break
+			case "CompromiseTransaction":
+				db.UpdateTemporalData(eventData.toTemporalData())
+				db.UpdateSpatialData(eventData.toSpatialData())
+				db.UpdateParticipantData(eventData.toParticipantData())
+				db.UpdateTransactionData(eventData.toTransactionData())
+				break
+			default:
+				fmt.Printf(event.EventName)
+			}
+			fmt.Printf("\n<-- Chaincode event received: %s - %s\n", event.EventName, eventStr)
+
+			endTime := time.Now().UnixNano()
+			endTimeString := fmt.Sprintf("%d", endTime)
+			if _, err := file.WriteString(startTimeString + " " + endTimeString + "\n"); err != nil {
+				log.Println(err)
+			}
+		}
+
+	}()
 }
 ```
 ---
-### 화면
+
+### 실시 예
 |정보||
 |---|---|
-|<p style="font-size:10pt" align="center">스마트 컨트랙트<br>업로드</p><img width=150/>|<img src=https://user-images.githubusercontent.com/78259314/230725409-607a57a0-d802-4328-b78e-b2194b9fd61d.png width=500, height=500 />|
-|<p align="center">스마트 컨트랙트<br>리스트</p>|<img src=https://user-images.githubusercontent.com/78259314/230725407-d1db0fb6-fc71-4119-8175-f9b651ae3cd4.png width=600, height=300/>|
-|<p align="center">스마트 컨트랙트<br>상세 정보</p>|<img src=https://user-images.githubusercontent.com/78259314/230725428-af70880a-5dd2-4c75-99c8-4763ac4e7515.png width=700, height=500/>|
-|<p align="center">스마트 컨트랙트<br>비교</p>|<img src=https://user-images.githubusercontent.com/78259314/230725432-1d3bbc23-a9df-4648-bb04-f93578ab3014.png width=700, height=500/>|
-|<p align="center">트랜잭션<br>이벤트</p>|<img src=https://user-images.githubusercontent.com/78259314/230725426-532dad08-5f41-495e-8f3a-3f40a294102d.png width=500, height=300/>|
+|<p style="font-size:10pt" align="center">판매 명세서</p><img width=150/>|<img src=https://github.com/jhl8109/FabricAPI/assets/78259314/1405fbf3-1e77-4122-9096-17b53cf0b7ed width=500 />|
+|<p align="center">이벤트 수신 로그</p>|<img src=https://github.com/jhl8109/FabricAPI/assets/78259314/16b7f9e9-e892-4f66-b322-c22dd218235d width=500/>|
+|<p align="center">이벤트 처리 로그</p>|<img src=https://github.com/jhl8109/FabricAPI/assets/78259314/a5cde3f6-9694-4db4-9f71-0b3a99d97a50 width=700/>|
+|<p align="center">분류별 검색 필터 대시보드</p>|<img src=https://github.com/jhl8109/FabricAPI/assets/78259314/d73d14c1-bff9-4c8e-bf68-8d04f481f8d6 width=700, height=500/>|
 <br>
 
-## 평가
+## 성능 평가
 > 본 프로젝트에서는 하이퍼레저 패브릭 네트워크와 연결하기 위해 Fabric Gateway SDK를 활용하였으며,<br>
 명령어 기반 실행과 SDK 기반 트랜잭션 성능을 평가하였다.
 
