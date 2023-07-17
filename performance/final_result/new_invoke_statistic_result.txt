@@ -1,0 +1,5 @@
+Minimum: 108.633
+25th Percentile: 140.171
+Average: 152.77657352941173
+75th Percentile: 163.39275
+Maximum: 214.056
