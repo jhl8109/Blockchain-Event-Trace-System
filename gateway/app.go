@@ -18,7 +18,7 @@ import (
 
 const (
 	channelName   = "used-car"
-	chaincodeName = "used-car-transfer"
+	chaincodeName = "transaction"
 )
 
 var contract = &client.Contract{}
